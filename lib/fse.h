@@ -391,7 +391,7 @@ typedef struct
 } FSE_DState_t;
 
 
-static void     FSE_initDState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD, const FSE_DTable* dt);
+static void FSE_initDState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD, const FSE_DTable* dt);
 
 static unsigned char FSE_decodeSymbol(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD);
 
@@ -503,7 +503,7 @@ MEM_STATIC void FSE_flushCState(BIT_CStream_t* bitC, const FSE_CState_t* statePt
     BIT_flushBits(bitC);
 }
 
-/*<=====    Decompression    =====>*/
+/*<======    Decompression    ======>*/
 
 typedef struct {
     U16 tableLog;
@@ -516,6 +516,15 @@ typedef struct
     unsigned char  symbol;
     unsigned char  nbBits;
 } FSE_decode_t;   /* size == U32 */
+
+MEM_STATIC size_t FSE_initDState_raw(BIT_DStream_t* bitD, const FSE_DTable* dt)
+{
+    const void* ptr = dt;
+    const FSE_DTableHeader* const DTableH = (const FSE_DTableHeader*)ptr;
+    size_t const state = BIT_readBits(bitD, DTableH->tableLog);
+    BIT_reloadDStream(bitD);
+    return state;
+}
 
 MEM_STATIC void FSE_initDState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD, const FSE_DTable* dt)
 {
@@ -540,6 +549,17 @@ MEM_STATIC void FSE_updateState(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
     DStatePtr->state = DInfo.newState + lowBits;
 }
 
+MEM_STATIC BYTE FSE_decodeSymbol_raw(size_t* state, const FSE_decode_t* dTable, BIT_DStream_t* bitD)
+{
+    FSE_decode_t const DInfo = dTable[*state];
+    U32 const nbBits = DInfo.nbBits;
+    BYTE const symbol = DInfo.symbol;
+    size_t const lowBits = BIT_readBits(bitD, nbBits);
+
+    *state = DInfo.newState + lowBits;
+    return symbol;
+}
+
 MEM_STATIC BYTE FSE_decodeSymbol(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
 {
     FSE_decode_t const DInfo = ((const FSE_decode_t*)(DStatePtr->table))[DStatePtr->state];
@@ -548,6 +568,17 @@ MEM_STATIC BYTE FSE_decodeSymbol(FSE_DState_t* DStatePtr, BIT_DStream_t* bitD)
     size_t const lowBits = BIT_readBits(bitD, nbBits);
 
     DStatePtr->state = DInfo.newState + lowBits;
+    return symbol;
+}
+
+MEM_STATIC BYTE FSE_decodeSymbolFast_raw(size_t* state, const FSE_decode_t* dTable, BIT_DStream_t* bitD)
+{
+    FSE_decode_t const DInfo = dTable[*state];
+    U32 const nbBits = DInfo.nbBits;
+    BYTE const symbol = DInfo.symbol;
+    size_t const lowBits = BIT_readBitsFast(bitD, nbBits);
+
+    *state = DInfo.newState + lowBits;
     return symbol;
 }
 
@@ -578,8 +609,8 @@ MEM_STATIC unsigned FSE_endOfDState(const FSE_DState_t* DStatePtr)
 ****************************************************************/
 /*!MEMORY_USAGE :
 *  Memory usage formula : N->2^N Bytes (examples : 10 -> 1KB; 12 -> 4KB ; 16 -> 64KB; 20 -> 1MB; etc.)
-*  Increasing memory usage improves compression ratio
-*  Reduced memory usage can improve speed, due to cache effect
+*  Increasing memory usage improves compression ratio.
+*  Reduced memory usage can improve speed, due to cache effect.
 *  Recommended max value is 14, for 16KB, which nicely fits into Intel x86 L1 cache */
 #define FSE_MAX_MEMORY_USAGE 14
 #define FSE_DEFAULT_MEMORY_USAGE 13
